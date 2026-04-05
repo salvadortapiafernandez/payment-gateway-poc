@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pasarela de Pagos - Tech Demo</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-lg max-w-2xl w-full p-6">
+        <h1 class="text-3xl font-bold text-gray-800 mb-2">🚀 Pasarela de Pagos</h1>
+        <p class="text-gray-500 mb-6">Demo con microservicios .NET + Java + Docker</p>
+
+        <!-- Formulario de orden y pago -->
+        <div class="space-y-6">
+            <div>
+                <label class="block text-gray-700 font-medium mb-2">Producto</label>
+                <input type="text" id="product" value="Laptop" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+                <label class="block text-gray-700 font-medium mb-2">Monto (USD)</label>
+                <input type="number" id="amount" value="150.50" step="0.01" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <button id="btnPagar" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition duration-200 flex items-center justify-center gap-2">
+                💳 Procesar Pago
+            </button>
+        </div>
+
+        <!-- Resultados -->
+        <div id="resultado" class="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200 hidden">
+            <h2 class="font-semibold text-gray-700 mb-2">Resultado de la transacción</h2>
+            <pre id="detalleResultado" class="text-sm text-gray-600 overflow-auto"></pre>
+        </div>
+
+        <!-- Health checks -->
+        <div class="mt-6 pt-4 border-t text-xs text-gray-400 flex justify-between">
+            <span>🟢 Orders API: <span id="healthOrders">verificando...</span></span>
+            <span>🟢 Payments API: <span id="healthPayments">verificando...</span></span>
+        </div>
+    </div>
+
+    <script>
+        // URLs de los microservicios (desde el navegador)
+        const ORDERS_URL = 'http://localhost:8080';
+        const PAYMENTS_URL = 'http://localhost:8081';
+
+        // Elementos del DOM
+        const productInput = document.getElementById('product');
+        const amountInput = document.getElementById('amount');
+        const btnPagar = document.getElementById('btnPagar');
+        const resultadoDiv = document.getElementById('resultado');
+        const detalleResultado = document.getElementById('detalleResultado');
+
+        // Health checks automáticos
+        async function checkHealth() {
+            try {
+                const resOrders = await fetch(`${ORDERS_URL}/health`);
+                const healthOrders = resOrders.ok ? '✅ OK' : '❌ Fallo';
+                document.getElementById('healthOrders').innerText = healthOrders;
+            } catch (e) {
+                document.getElementById('healthOrders').innerText = '❌ Sin conexión';
+            }
+
+            try {
+                const resPayments = await fetch(`${PAYMENTS_URL}/payments/health`);
+                const healthPayments = resPayments.ok ? '✅ OK' : '❌ Fallo';
+                document.getElementById('healthPayments').innerText = healthPayments;
+            } catch (e) {
+                document.getElementById('healthPayments').innerText = '❌ Sin conexión';
+            }
+        }
+
+        // Función principal: crear orden y luego pagar
+        async function procesarPago() {
+            const product = productInput.value.trim();
+            const amount = parseFloat(amountInput.value);
+
+            if (!product || isNaN(amount) || amount <= 0) {
+                alert('Por favor ingresa un producto y un monto válido');
+                return;
+            }
+
+            btnPagar.disabled = true;
+            btnPagar.innerHTML = '⏳ Procesando...';
+
+            // Mostrar bloque de resultados
+            resultadoDiv.classList.remove('hidden');
+            detalleResultado.textContent = '🔄 Creando orden...';
+
+            try {
+                // 1. Crear orden en orders-service
+                const orderResponse = await fetch(`${ORDERS_URL}/orders`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ amount, product })
+                });
+
+                if (!orderResponse.ok) throw new Error(`Error al crear orden: ${orderResponse.status}`);
+                const orderData = await orderResponse.json();
+                const orderId = orderData.orderId;
+                detalleResultado.textContent = `✅ Orden creada: ${JSON.stringify(orderData, null, 2)}\n\n🔄 Procesando pago...`;
+
+                // 2. Procesar pago en payments-service
+                const paymentResponse = await fetch(`${PAYMENTS_URL}/payments`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ orderId, amount, currency: 'USD' })
+                });
+
+                if (!paymentResponse.ok) throw new Error(`Error en pago: ${paymentResponse.status}`);
+                const paymentData = await paymentResponse.json();
+
+                detalleResultado.textContent = `✅ Pago exitoso:\n${JSON.stringify(paymentData, null, 2)}\n\n📦 Orden completa:\n${JSON.stringify(orderData, null, 2)}`;
+            } catch (error) {
+                detalleResultado.textContent = `❌ Error: ${error.message}`;
+            } finally {
+                btnPagar.disabled = false;
+                btnPagar.innerHTML = '💳 Procesar Pago';
+            }
+        }
+
+        // Event listener
+        btnPagar.addEventListener('click', procesarPago);
+
+        // Health cada 10 segundos
+        checkHealth();
+        setInterval(checkHealth, 10000);
+    </script>
+</body>
+</html>
